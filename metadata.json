@@ -1,0 +1,5 @@
+{
+  "name": "MediClarify",
+  "description": "An AI-powered assistant that explains medical documents, lab reports, and prescriptions in simple, non-diagnostic language.",
+  "requestFramePermissions": []
+}
