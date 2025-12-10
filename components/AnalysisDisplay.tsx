@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { AnalysisResult } from '../types';
-import { CheckCircle, AlertTriangle, ArrowDown, ArrowUp, HelpCircle, Activity, FileText, User, Calendar, TrendingUp, Minus, Info } from 'lucide-react';
+
+import React, { useState, useRef, useEffect } from 'react';
+import { AnalysisResult, ChatMessage } from '../types';
+import { CheckCircle, AlertTriangle, ArrowDown, ArrowUp, HelpCircle, Activity, FileText, User, Calendar, TrendingUp, Minus, Info, Share2, Send, MessageSquare, Sparkles } from 'lucide-react';
+import { chatWithAI } from '../services/geminiService';
 
 interface AnalysisDisplayProps {
   result: AnalysisResult;
@@ -206,7 +208,11 @@ const HealthScoreGauge: React.FC<{
 };
 
 const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ result }) => {
-  
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   const abnormalItems = result.indicators
     .filter(i => i.status !== 'Normal' && i.status !== 'Unknown')
     .map(i => ({ parameter: i.parameter, status: i.status }));
@@ -215,12 +221,62 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ result }) => {
     .filter(i => i.status === 'Normal')
     .map(i => i.parameter);
 
-  // Helper for score color
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-emerald-600 bg-emerald-50 border-emerald-100";
     if (score >= 60) return "text-yellow-600 bg-yellow-50 border-yellow-100";
     return "text-red-600 bg-red-50 border-red-100";
   };
+
+  const handleShare = async () => {
+    const text = `MediClarify Analysis for ${result.patientInfo.name || 'Patient'}\n` +
+                 `Type: ${result.documentType}\n` +
+                 `Health Score: ${result.healthScore.currentScore}/100\n\n` +
+                 `Summary: ${result.conclusion || 'No conclusion available.'}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'MediClarify Report',
+          text: text,
+        });
+      } catch (err) {
+        console.log('Error sharing:', err);
+      }
+    } else {
+      window.location.href = `mailto:?subject=MediClarify Report Analysis&body=${encodeURIComponent(text)}`;
+    }
+  };
+
+  // Chat Functions
+  const handleSendMessage = async (messageText: string) => {
+    if (!messageText.trim() || isChatLoading) return;
+
+    const userMsg: ChatMessage = { role: 'user', text: messageText };
+    setChatHistory(prev => [...prev, userMsg]);
+    setChatInput('');
+    setIsChatLoading(true);
+
+    try {
+      const response = await chatWithAI(chatHistory.concat(userMsg), messageText, result);
+      const aiMsg: ChatMessage = { role: 'model', text: response };
+      setChatHistory(prev => [...prev, aiMsg]);
+    } catch (error) {
+      console.error("Chat error:", error);
+      const errorMsg: ChatMessage = { role: 'model', text: "I'm sorry, I encountered an error while trying to answer. Please try again." };
+      setChatHistory(prev => [...prev, errorMsg]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleSuggestionClick = (question: string) => {
+    handleSendMessage(question);
+  };
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatHistory, isChatLoading]);
+
 
   return (
     <div className="space-y-8 animate-fade-in pb-12 report-container">
@@ -258,7 +314,7 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ result }) => {
         </div>
       </div>
 
-      {/* Screen Title & Document Type Badge */}
+      {/* Screen Title & Document Type Badge & Share */}
       <div className="flex items-center justify-between mb-2 no-print">
           <div>
             <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-bold bg-indigo-100 text-indigo-800 shadow-sm">
@@ -266,6 +322,13 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ result }) => {
                 {result.documentType}
             </span>
           </div>
+          <button 
+            onClick={handleShare}
+            className="flex items-center text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors"
+          >
+            <Share2 className="w-4 h-4 mr-2" />
+            Share
+          </button>
       </div>
 
       {/* Patient Info Card */}
@@ -306,205 +369,306 @@ const AnalysisDisplay: React.FC<AnalysisDisplayProps> = ({ result }) => {
               <HealthScoreGauge 
                 score={result.healthScore.currentScore} 
                 label="Current Health Score"
-                abnormalItems={abnormalItems}
+                abnormalItems={abnormalItems} 
                 normalItems={normalItems}
               />
           </div>
 
-          {/* Quick Stats / Conclusion */}
-          <div className="md:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none print:col-span-2">
-             <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center">
-                <Activity className="w-5 h-5 mr-2 text-indigo-500" />
-                Analysis Summary
-            </h2>
-            <div className="bg-slate-50 p-4 rounded-lg mb-4 print:bg-transparent print:border print:border-slate-200">
-                <p className="text-slate-700 leading-relaxed text-sm">
-                    {result.conclusion || "No conclusion generated."}
-                </p>
-            </div>
-            {result.comparisonTable && result.comparisonTable.length > 0 && (
-                <div className="flex items-center text-sm text-slate-600 mt-2">
-                    <TrendingUp className="w-4 h-4 mr-2 text-blue-500" />
-                    <span>Comparison found: {result.healthScore.status} vs previous report.</span>
-                </div>
-            )}
+          {/* Quick Stats / Comparison */}
+          <div className="md:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border print:shadow-none print:p-4">
+              <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+                  <Activity className="w-5 h-5 mr-2 text-indigo-500" />
+                  Analysis Summary
+              </h2>
+              
+              <div className="space-y-4">
+                  <p className="text-slate-600 text-sm leading-relaxed">{result.conclusion}</p>
+
+                  {/* Comparison Summary Logic */}
+                  {result.comparisonTable && result.comparisonTable.length > 0 ? (
+                      <div className="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-100">
+                          <h3 className="text-sm font-bold text-slate-800 mb-2 flex items-center">
+                             <TrendingUp className="w-4 h-4 mr-2 text-indigo-600"/>
+                             Report Comparison
+                          </h3>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <span className="text-xs text-slate-400 uppercase">Old Score</span>
+                                <div className="text-lg font-semibold text-slate-700">{result.healthScore.previousScore || 'N/A'}</div>
+                            </div>
+                            <div>
+                                <span className="text-xs text-slate-400 uppercase">Trend</span>
+                                <div className={`text-lg font-bold ${
+                                    result.healthScore.status === 'Improved' ? 'text-emerald-600' : 
+                                    result.healthScore.status === 'Declined' ? 'text-red-600' : 'text-slate-600'
+                                }`}>
+                                    {result.healthScore.status}
+                                    {result.healthScore.difference ? ` (${result.healthScore.difference > 0 ? '+' : ''}${result.healthScore.difference})` : ''}
+                                </div>
+                            </div>
+                          </div>
+                          {result.comparisonSummary && (
+                              <p className="text-xs text-slate-600 mt-2 pt-2 border-t border-slate-200 italic">
+                                "{result.comparisonSummary}"
+                              </p>
+                          )}
+                      </div>
+                  ) : (
+                      <div className="grid grid-cols-2 gap-4 mt-2">
+                          <div className="p-3 bg-red-50 rounded-lg border border-red-100 text-center">
+                              <span className="block text-2xl font-bold text-red-600">{abnormalItems.length}</span>
+                              <span className="text-xs text-red-600 font-medium">Attention Needed</span>
+                          </div>
+                          <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100 text-center">
+                              <span className="block text-2xl font-bold text-emerald-600">{normalItems.length}</span>
+                              <span className="text-xs text-emerald-600 font-medium">Normal Values</span>
+                          </div>
+                      </div>
+                  )}
+              </div>
           </div>
       </div>
 
-      {/* Comparison Table (Condition: If Comparison Data Exists) */}
+      {/* Comparison Table (Conditional) */}
       {result.comparisonTable && result.comparisonTable.length > 0 && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:shadow-none print:border print:mb-6">
-             <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center">
-                <FileText className="w-5 h-5 mr-2 text-indigo-500" />
-                Comparison: Old vs New
-            </h2>
-            
-            {/* Table */}
-            <div className="overflow-x-auto mb-6">
-                <table className="min-w-full divide-y divide-slate-200">
-                    <thead className="bg-slate-50 print:bg-gray-100">
-                        <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Parameter</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Old Value</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">New Value</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Trend</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-slate-200">
-                        {result.comparisonTable.map((row, idx) => (
-                            <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50 print:bg-transparent'}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{row.parameter}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{row.oldValue}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-semibold">{row.newValue}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                    {row.trend === 'Increase' && <span className="text-red-600 flex items-center"><ArrowUp className="w-3 h-3 mr-1" /> Increase</span>}
-                                    {row.trend === 'Decrease' && <span className="text-blue-600 flex items-center"><ArrowDown className="w-3 h-3 mr-1" /> Decrease</span>}
-                                    {row.trend === 'Stable' && <span className="text-green-600 flex items-center"><Minus className="w-3 h-3 mr-1" /> Stable</span>}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-
-            {/* Comparison Summary Section */}
-            <div className="bg-slate-50 rounded-lg p-5 border border-slate-100 print:bg-transparent print:border-slate-200">
-                <h3 className="text-sm font-semibold text-slate-800 mb-3 flex items-center uppercase tracking-wide">
-                    <TrendingUp className="w-4 h-4 mr-2 text-indigo-500" />
-                    Comparison Overview
-                </h3>
-                
-                {/* Health Score Differential */}
-                {result.healthScore.previousScore !== undefined && (
-                     <div className="flex items-center gap-4 mb-4 pb-4 border-b border-slate-200">
-                        <div className={`px-3 py-1.5 rounded-lg border text-sm font-bold ${getScoreColor(result.healthScore.previousScore)}`}>
-                             Old Score: {result.healthScore.previousScore}
-                        </div>
-                        <div className="text-slate-400">
-                             <ArrowRightIcon className="w-4 h-4" />
-                        </div>
-                        <div className={`px-3 py-1.5 rounded-lg border text-sm font-bold ${getScoreColor(result.healthScore.currentScore)}`}>
-                             New Score: {result.healthScore.currentScore}
-                        </div>
-                        
-                        {result.healthScore.difference !== undefined && result.healthScore.difference !== 0 && (
-                            <div className={`text-sm font-medium ${result.healthScore.difference > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                ({result.healthScore.difference > 0 ? '+' : ''}{result.healthScore.difference} points)
-                            </div>
-                        )}
-                     </div>
-                )}
-
-                {/* Text Summary */}
-                <p className="text-sm text-slate-700 leading-relaxed">
-                    {result.comparisonSummary || "Comparison data analyzed above. Review the specific parameter trends in the table."}
-                </p>
-            </div>
-        </div>
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none print:mb-6">
+              <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 print:bg-slate-100">
+                  <h3 className="font-semibold text-slate-800 flex items-center">
+                      <TrendingUp className="w-5 h-5 mr-2 text-indigo-500" />
+                      Detailed Comparison
+                  </h3>
+              </div>
+              <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-200 text-sm text-left">
+                      <thead className="bg-slate-50">
+                          <tr>
+                              <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Parameter</th>
+                              <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Old Value</th>
+                              <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">New Value</th>
+                              <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Trend</th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                          {result.comparisonTable.map((row, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50/50">
+                                  <td className="px-6 py-4 font-medium text-slate-900">{row.parameter}</td>
+                                  <td className="px-6 py-4 text-slate-600">{row.oldValue}</td>
+                                  <td className="px-6 py-4 text-slate-900 font-medium">{row.newValue}</td>
+                                  <td className="px-6 py-4">
+                                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                          row.trend === 'Increase' ? 'bg-blue-100 text-blue-700' :
+                                          row.trend === 'Decrease' ? 'bg-purple-100 text-purple-700' :
+                                          'bg-slate-100 text-slate-700'
+                                      }`}>
+                                          {row.trend === 'Increase' ? <ArrowUp className="w-3 h-3 mr-1"/> : 
+                                           row.trend === 'Decrease' ? <ArrowDown className="w-3 h-3 mr-1"/> : 
+                                           <Minus className="w-3 h-3 mr-1"/>}
+                                          {row.trend}
+                                      </span>
+                                  </td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
+          </div>
       )}
 
       {/* Main Analysis Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:shadow-none print:border print:mb-6">
-        <div className="px-6 py-4 border-b border-slate-100 bg-indigo-50/50 print:bg-gray-100">
-             <h2 className="text-lg font-semibold text-slate-800 flex items-center">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:border print:shadow-none print:mb-6">
+        <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center print:bg-slate-100">
+            <h3 className="font-semibold text-slate-800 flex items-center">
                 <FileText className="w-5 h-5 mr-2 text-indigo-500" />
-                Detailed Report Breakdown
-            </h2>
+                Extracted Values & Analysis
+            </h3>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50 print:bg-gray-100">
-              <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-1/3">Parameter</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-1/3">Value</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-slate-200">
-              {result.extractedValues.map((item, index) => {
-                const status = result.indicators.find(i => i.parameter === item.parameter)?.status || 'Unknown';
-                const explanation = result.simpleExplanations.find(e => e.parameter === item.parameter)?.text || 'No explanation available.';
-                
-                return (
-                  <tr key={index} className={`group ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50 print:bg-transparent'}`}>
-                    <td className="px-6 py-4 relative">
-                        <div className="flex items-center">
-                             <div className="text-sm font-medium text-slate-900 mr-2">{item.parameter}</div>
-                             <div className="group relative no-print">
-                                <Info className="w-4 h-4 text-slate-300 cursor-help hover:text-indigo-500 transition-colors" />
-                                <div className="absolute left-full top-1/2 transform -translate-y-1/2 ml-2 w-64 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none invisible group-hover:visible">
-                                    <div className="font-semibold mb-1 text-indigo-300">About {item.parameter}:</div>
-                                    {explanation}
-                                    {/* Arrow */}
-                                    <div className="absolute left-0 top-1/2 transform -translate-x-full -translate-y-1/2 border-8 border-transparent border-r-slate-800"></div>
-                                </div>
-                             </div>
-                        </div>
-                        <div className="text-xs text-slate-500 mt-0.5">Range: {item.ref_range} {item.unit}</div>
+            <table className="min-w-full divide-y divide-slate-200 text-sm text-left">
+                <thead className="bg-slate-50">
+                    <tr>
+                        <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-1/3">Parameter</th>
+                        <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Value</th>
+                        <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                    {result.extractedValues.map((item, idx) => {
+                        const indicator = result.indicators.find(i => i.parameter === item.parameter);
+                        const explanation = result.simpleExplanations.find(e => e.parameter === item.parameter)?.text;
                         
-                        {/* Print Only Explanation */}
-                        <div className="hidden print:block text-[10px] text-slate-500 mt-1 italic leading-tight">
-                            {explanation}
-                        </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-700">
-                        {item.value} <span className="text-slate-400 font-normal text-xs">{item.unit}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                        <StatusBadge status={status} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        return (
+                            <tr key={idx} className="hover:bg-slate-50/50 group">
+                                <td className="px-6 py-4">
+                                    <div className="flex items-center">
+                                        <span className="font-medium text-slate-900">{item.parameter}</span>
+                                        
+                                        {/* Tooltip for Explanation */}
+                                        {explanation && (
+                                            <div className="relative ml-2 group-hover:opacity-100 opacity-0 transition-opacity no-print">
+                                                <Info className="w-4 h-4 text-slate-400 cursor-help" />
+                                                <div className="absolute left-1/2 transform -translate-x-1/2 bottom-full mb-2 w-64 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-lg z-20 pointer-events-none hidden group-hover:block">
+                                                    {explanation}
+                                                    <div className="absolute left-1/2 transform -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-800"></div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="text-xs text-slate-400 mt-1">Ref: {item.ref_range}</div>
+                                    
+                                    {/* Print-only Explanation */}
+                                    {explanation && (
+                                        <div className="hidden print:block text-xs text-slate-500 mt-1 italic">
+                                            {explanation}
+                                        </div>
+                                    )}
+                                </td>
+                                <td className="px-6 py-4">
+                                    <span className="font-semibold text-slate-700">{item.value}</span>
+                                    <span className="text-xs text-slate-500 ml-1">{item.unit}</span>
+                                </td>
+                                <td className="px-6 py-4">
+                                    <StatusBadge status={indicator?.status || 'Unknown'} />
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
         </div>
       </div>
 
-      {/* Wellness & Questions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:break-inside-avoid print:gap-4">
-        {/* Wellness */}
-        <div className="bg-emerald-50 rounded-xl p-6 border border-emerald-100 print:bg-transparent print:border-emerald-200">
-            <h3 className="text-lg font-semibold text-emerald-900 mb-4 flex items-center">
-                <CheckCircle className="w-5 h-5 mr-2" />
-                Wellness Suggestions
-            </h3>
-            <ul className="space-y-3">
-                {result.wellnessSuggestions.map((tip, idx) => (
-                    <li key={idx} className="flex items-start text-sm text-emerald-800">
-                        <div className="min-w-[6px] h-[6px] rounded-full bg-emerald-500 mt-1.5 mr-2"></div>
-                        {tip}
-                    </li>
-                ))}
-            </ul>
+      {/* Wellness & Questions Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-2 print:gap-4 print:mb-6">
+          {/* Wellness Suggestions */}
+          <div className="bg-emerald-50 rounded-xl p-6 border border-emerald-100 print:border print:bg-transparent">
+              <h3 className="text-lg font-semibold text-emerald-800 mb-4 flex items-center">
+                  <CheckCircle className="w-5 h-5 mr-2" />
+                  Wellness Suggestions
+              </h3>
+              <ul className="space-y-3">
+                  {result.wellnessSuggestions.map((suggestion, idx) => (
+                      <li key={idx} className="flex items-start text-sm text-emerald-900">
+                          <span className="mr-2 mt-1.5 w-1.5 h-1.5 bg-emerald-400 rounded-full flex-shrink-0"></span>
+                          {suggestion}
+                      </li>
+                  ))}
+              </ul>
+          </div>
+
+          {/* Doctor Questions */}
+          <div className="bg-indigo-50 rounded-xl p-6 border border-indigo-100 print:border print:bg-transparent">
+              <h3 className="text-lg font-semibold text-indigo-800 mb-4 flex items-center">
+                  <HelpCircle className="w-5 h-5 mr-2" />
+                  Questions for Your Doctor
+              </h3>
+              <ul className="space-y-3">
+                  {result.doctorQuestions.map((q, idx) => (
+                      <li key={idx} className="flex items-start text-sm text-indigo-900">
+                          <span className="mr-2 mt-1.5 w-1.5 h-1.5 bg-indigo-400 rounded-full flex-shrink-0"></span>
+                          {q}
+                      </li>
+                  ))}
+              </ul>
+          </div>
+      </div>
+
+      {/* Chatbot Interface (NO PRINT) */}
+      <div className="bg-white rounded-xl shadow-lg border border-indigo-100 overflow-hidden mt-8 no-print">
+        <div className="bg-gradient-to-r from-indigo-600 to-blue-600 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center text-white">
+            <MessageSquare className="w-5 h-5 mr-2" />
+            <h3 className="font-bold text-lg">Ask MediClarify AI</h3>
+          </div>
+          <span className="text-xs bg-white/20 text-white px-2 py-1 rounded backdrop-blur-sm">
+            Based on this report
+          </span>
         </div>
 
-        {/* Questions */}
-        <div className="bg-indigo-50 rounded-xl p-6 border border-indigo-100 print:bg-transparent print:border-indigo-200">
-             <h3 className="text-lg font-semibold text-indigo-900 mb-4 flex items-center">
-                <HelpCircle className="w-5 h-5 mr-2" />
-                Questions for Your Doctor
-            </h3>
-            <ul className="space-y-3">
-                {result.doctorQuestions.map((q, idx) => (
-                    <li key={idx} className="flex items-start text-sm text-indigo-800">
-                         <div className="min-w-[6px] h-[6px] rounded-full bg-indigo-500 mt-1.5 mr-2"></div>
-                        {q}
-                    </li>
-                ))}
-            </ul>
+        {/* Chat History */}
+        <div className="h-96 overflow-y-auto p-6 bg-slate-50 space-y-4">
+           {/* Intro Message */}
+           <div className="flex justify-start">
+             <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-4 max-w-[85%] shadow-sm">
+               <p className="text-sm text-slate-700">
+                 Hi! I've analyzed your <strong>{result.documentType}</strong>. 
+                 Feel free to ask me follow-up questions about the values, trends, or definitions. 
+                 <br/><br/>
+                 <span className="text-xs text-slate-500 italic">Remember, I cannot provide medical diagnosis or treatment advice.</span>
+               </p>
+             </div>
+           </div>
+
+           {/* Conversation */}
+           {chatHistory.map((msg, index) => (
+             <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+               <div className={`p-4 rounded-2xl max-w-[85%] shadow-sm text-sm ${
+                 msg.role === 'user' 
+                   ? 'bg-indigo-600 text-white rounded-tr-none' 
+                   : 'bg-white border border-slate-200 text-slate-700 rounded-tl-none'
+               }`}>
+                 {msg.text}
+               </div>
+             </div>
+           ))}
+
+           {isChatLoading && (
+             <div className="flex justify-start">
+               <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-4 shadow-sm flex items-center space-x-2">
+                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                 <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+               </div>
+             </div>
+           )}
+           <div ref={chatEndRef} />
+        </div>
+
+        {/* Input Area */}
+        <div className="p-4 bg-white border-t border-slate-100">
+           {/* Suggested Questions Chips */}
+           {chatHistory.length === 0 && (
+             <div className="mb-4 overflow-x-auto whitespace-nowrap pb-2 scrollbar-hide">
+               <div className="flex space-x-2">
+                  <span className="flex items-center text-xs font-semibold text-indigo-500 mr-1">
+                    <Sparkles className="w-3 h-3 mr-1" /> Try asking:
+                  </span>
+                  {result.doctorQuestions.slice(0, 3).map((q, idx) => (
+                    <button 
+                      key={idx}
+                      onClick={() => handleSuggestionClick(q)}
+                      className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs rounded-full border border-indigo-100 transition-colors"
+                    >
+                      {q.length > 50 ? q.substring(0, 50) + '...' : q}
+                    </button>
+                  ))}
+               </div>
+             </div>
+           )}
+
+           <div className="flex space-x-2">
+             <input
+               type="text"
+               value={chatInput}
+               onChange={(e) => setChatInput(e.target.value)}
+               onKeyDown={(e) => e.key === 'Enter' && handleSendMessage(chatInput)}
+               placeholder="Ask a question about your report..."
+               className="flex-1 px-5 py-3 border border-slate-300 rounded-full bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm shadow-sm"
+             />
+             <button 
+               onClick={() => handleSendMessage(chatInput)}
+               disabled={!chatInput.trim() || isChatLoading}
+               className="p-3 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+             >
+               <Send className="w-5 h-5" />
+             </button>
+           </div>
+           <p className="text-[10px] text-center text-slate-400 mt-2">
+             AI responses can be inaccurate. Always consult a doctor for medical decisions.
+           </p>
         </div>
       </div>
     </div>
   );
 };
-
-// Simple icon for comparison summary (since Lucide doesn't export simple arrow right sometimes depending on version or conflict)
-const ArrowRightIcon = ({className}: {className?: string}) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-        <path d="M5 12h14" />
-        <path d="m12 5 7 7-7 7" />
-    </svg>
-);
 
 export default AnalysisDisplay;

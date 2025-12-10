@@ -53,6 +53,11 @@ export interface AnalysisResult {
   summary?: string;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+}
+
 export enum AppStatus {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',

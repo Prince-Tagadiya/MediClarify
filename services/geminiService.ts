@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Schema, Type } from "@google/genai";
-import { AnalysisResult } from "../types";
+import { AnalysisResult, ChatMessage } from "../types";
 
 const SYSTEM_INSTRUCTION = `
 You are a helpful, non-diagnostic AI assistant designed to explain medical documents to laypeople. 
@@ -205,4 +205,44 @@ export const analyzeDocument = async (
     console.error("Analysis failed:", error);
     throw error;
   }
+};
+
+export const chatWithAI = async (
+  history: ChatMessage[],
+  userMessage: string,
+  context: AnalysisResult
+): Promise<string> => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API Key not found");
+  }
+  const ai = new GoogleGenAI({ apiKey });
+
+  const systemInstruction = `
+  You are MediClarify, an educational AI assistant.
+  CONTEXT: The user has uploaded a medical report. Here is the analysis data: ${JSON.stringify(context)}.
+
+  YOUR ROLE:
+  1. Answer follow-up questions based ONLY on the provided report data and general non-medical wellness knowledge.
+  2. If the user asks about specific values (e.g., "Why is hemoglobin low?"), use the extracted values and safe, general explanations.
+  3. DO NOT diagnose, prescribe, or give medical advice.
+  4. If asked about treatment, say: "I cannot suggest treatments. Please consult your doctor."
+  5. Keep answers concise, friendly, and simple.
+  `;
+
+  // Map history to the format expected by the SDK
+  // The SDK expects { role: 'user' | 'model', parts: [{ text: string }] }
+  const chatHistory = history.map(msg => ({
+    role: msg.role,
+    parts: [{ text: msg.text }]
+  }));
+
+  const chat = ai.chats.create({
+    model: "gemini-2.5-flash",
+    config: { systemInstruction },
+    history: chatHistory
+  });
+
+  const result = await chat.sendMessage(userMessage);
+  return result.response.text();
 };

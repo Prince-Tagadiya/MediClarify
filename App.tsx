@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showPrintConfirm, setShowPrintConfirm] = useState(false);
   
   const fileInputRef1 = useRef<HTMLInputElement>(null);
   const fileInputRef2 = useRef<HTMLInputElement>(null);
@@ -87,7 +88,14 @@ const App: React.FC = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    setShowPrintConfirm(true);
+  };
+
+  const confirmPrint = () => {
+    setShowPrintConfirm(false);
+    setTimeout(() => {
+        window.print();
+    }, 100);
   };
 
   const renderFilePreview = (file: File, preview: string, isSecondary: boolean) => (
@@ -230,13 +238,13 @@ const App: React.FC = () => {
 
             {/* Additional Notes */}
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <label htmlFor="notes" className="block text-sm font-medium text-slate-700 mb-2">
+              <label htmlFor="notes" className="block text-sm font-medium text-slate-800 mb-2">
                 Additional Notes / Symptoms (Optional)
               </label>
               <textarea
                 id="notes"
                 rows={3}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all resize-none"
+                className="w-full px-4 py-3 border border-slate-300 rounded-xl bg-white text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all resize-none text-base"
                 placeholder="E.g., I've been feeling tired lately, or I had a fever yesterday..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
@@ -299,6 +307,38 @@ const App: React.FC = () => {
         <p className="font-semibold">© 2025 MediClarify — Built by Prince Tagadiya</p>
         <p>For educational and informational purposes only.</p>
       </footer>
+
+      {/* Print Confirmation Modal */}
+      {showPrintConfirm && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print animate-fade-in">
+          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 transform transition-all scale-100">
+            <div className="flex items-center space-x-3 mb-4">
+                <div className="bg-indigo-100 p-2 rounded-full">
+                  <Printer className="w-6 h-6 text-indigo-600" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">Print Report</h3>
+            </div>
+            <p className="text-slate-600 mb-6 text-sm leading-relaxed">
+              This will open your browser's print dialog. You can print to a connected printer or <b>Save as PDF</b>.
+              <br/><span className="text-xs text-slate-400 mt-2 block">Tip: Enable "Background Graphics" in print settings for best results.</span>
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button 
+                onClick={() => setShowPrintConfirm(false)}
+                className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-50 rounded-lg transition-colors border border-slate-200"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmPrint}
+                className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors flex items-center shadow-sm"
+              >
+                Proceed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
