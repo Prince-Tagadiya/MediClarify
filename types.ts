@@ -1,4 +1,5 @@
 
+
 export interface ExtractedValue {
   parameter: string;
   value: string;
@@ -14,6 +15,20 @@ export interface Indicator {
 export interface Explanation {
   parameter: string;
   text: string;
+}
+
+export interface Medicine {
+  name: string;
+  dosage: string;
+  duration: string;
+  type: string;
+}
+
+export interface RadiologyFinding {
+  location: string;
+  finding: string;
+  significance: string;
+  box_2d?: number[]; // [ymin, xmin, ymax, xmax] normalized 0-1000
 }
 
 export interface PatientInfo {
@@ -39,17 +54,19 @@ export interface HealthScore {
 }
 
 export interface AnalysisResult {
-  documentType: string;
-  patientInfo: PatientInfo;
-  extractedValues: ExtractedValue[];
-  indicators: Indicator[];
-  simpleExplanations: Explanation[];
+  documentType?: string;
+  patientInfo?: PatientInfo;
+  extractedValues?: ExtractedValue[];
+  indicators?: Indicator[];
+  simpleExplanations?: Explanation[];
   comparisonTable?: ComparisonRow[];
   comparisonSummary?: string;
-  healthScore: HealthScore;
+  medicines?: Medicine[];
+  radiologyFindings?: RadiologyFinding[];
+  healthScore?: HealthScore;
   conclusion?: string;
-  wellnessSuggestions: string[];
-  doctorQuestions: string[];
+  wellnessSuggestions?: string[];
+  doctorQuestions?: string[];
   summary?: string;
 }
 
